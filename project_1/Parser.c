@@ -163,6 +163,8 @@ void parseSBType(char *opr, Instruction *instr)
     unsigned rs_2 = regIndex(reg);
 
     imm = strtol(strtok(NULL, ", "), &dump, 10);
+    // Don't store lowest bit
+    imm >> 1;
 
     // 5 bit field next to opcode
     unsigned imm_front = ((imm & 0b1111) << 1) | ((imm >> 10) & 0b1);
