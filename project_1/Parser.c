@@ -101,23 +101,33 @@ void parseIType(char *opr, Instruction *instr, unsigned opcode)
     }
     else if (strcmp(opr, "addi") == 0)
     {
-        funct3 = 3;
+        funct3 = 0;
     }
     else if (strcmp(opr, "slli") == 0)
     {
-        funct3 = 3;
+        funct3 = 1;
     }
 
-    char *reg = strtok(NULL, ", ");
+    char *reg;
+    char *dump;
+    int imm = 0;
+    unsigned rs_1;
+
+    reg = strtok(NULL, ", ");
     unsigned rd = regIndex(reg);
 
-    reg = strtok(NULL, ", ");
-    unsigned rs_1 = regIndex(reg);
-
-    reg = strtok(NULL, ", ");
-    reg[strlen(reg) - 1] = '\0';
-    unsigned rs_2 = regIndex(reg);
-    int imm = 0; 
+    if (opcode == 3)
+    {
+        imm = strtol(strtok(NULL, "("), &dump, 10);
+        reg = strtok(NULL, ")");
+        rs_1 = regIndex(reg);
+    }
+    else if (opcode = 19)
+    {
+        reg = strtok(NULL, ", ");
+        rs_1 = regIndex(reg);
+        imm = strtol(strtok(NULL, ", "), &dump, 10);
+    }
 
     // Contruct instruction
     instr->instruction |= opcode;

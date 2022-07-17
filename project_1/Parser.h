@@ -8,4 +8,5 @@
 
 void loadInstructions(Instruction_Memory *i_mem, const char *trace);
 void parseRType(char *opr, Instruction *instr);
+void parseIType(char *opr, Instruction *instr, unsigned opcode);
 int regIndex(char *reg);
