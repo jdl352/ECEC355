@@ -32,12 +32,28 @@ void loadInstructions(Instruction_Memory *i_mem, const char *trace)
             strcmp(raw_instr, "sll") == 0 ||
             strcmp(raw_instr, "srl") == 0 ||
             strcmp(raw_instr, "xor") == 0 ||
-            strcmp(raw_instr, "or")  == 0 ||
+            strcmp(raw_instr, "or") == 0 ||
             strcmp(raw_instr, "and") == 0)
         {
             parseRType(raw_instr, &(i_mem->instructions[IMEM_index]));
             i_mem->last = &(i_mem->instructions[IMEM_index]);
-	}
+        }
+        else if (strcmp(raw_instr, "ld") == 0)
+        {
+            parseIType(raw_instr, &(i_mem->instructions[IMEM_index]), 3);
+            i_mem->last = &(i_mem->instructions[IMEM_index]);
+        }
+        else if (strcmp(raw_instr, "addi") == 0 ||
+                 strcmp(raw_instr, "slli") == 0)
+        {
+            parseIType(raw_instr, &(i_mem->instructions[IMEM_index]), 19);
+            i_mem->last = &(i_mem->instructions[IMEM_index]);
+        }
+        else if (strcmp(raw_instr, "bne") == 0)
+        {
+            parseSBType(raw_instr, &(i_mem->instructions[IMEM_index]));
+            i_mem->last = &(i_mem->instructions[IMEM_index]);
+        }
 
         IMEM_index++;
         PC += 4;
@@ -67,7 +83,7 @@ void parseRType(char *opr, Instruction *instr)
     unsigned rs_1 = regIndex(reg);
 
     reg = strtok(NULL, ", ");
-    reg[strlen(reg)-1] = '\0';
+    reg[strlen(reg) - 1] = '\0';
     unsigned rs_2 = regIndex(reg);
 
     // Contruct instruction
@@ -77,6 +93,91 @@ void parseRType(char *opr, Instruction *instr)
     instr->instruction |= (rs_1 << (7 + 5 + 3));
     instr->instruction |= (rs_2 << (7 + 5 + 3 + 5));
     instr->instruction |= (funct7 << (7 + 5 + 3 + 5 + 5));
+}
+
+void parseIType(char *opr, Instruction *instr, unsigned opcode)
+{
+    instr->instruction = 0;
+    unsigned funct3 = 0;
+
+    if (strcmp(opr, "ld") == 0)
+    {
+        funct3 = 3;
+    }
+    else if (strcmp(opr, "addi") == 0)
+    {
+        funct3 = 0;
+    }
+    else if (strcmp(opr, "slli") == 0)
+    {
+        funct3 = 1;
+    }
+
+    char *reg;
+    char *dump;
+    int imm = 0;
+    unsigned rs_1;
+
+    reg = strtok(NULL, ", ");
+    unsigned rd = regIndex(reg);
+
+    if (opcode == 3)
+    {
+        imm = strtol(strtok(NULL, "("), &dump, 10);
+        reg = strtok(NULL, ")");
+        rs_1 = regIndex(reg);
+    }
+    else if (opcode = 19)
+    {
+        reg = strtok(NULL, ", ");
+        rs_1 = regIndex(reg);
+        imm = strtol(strtok(NULL, ", "), &dump, 10);
+    }
+
+    // Contruct instruction
+    instr->instruction |= opcode;
+    instr->instruction |= (rd << 7);
+    instr->instruction |= (funct3 << (7 + 5));
+    instr->instruction |= (rs_1 << (7 + 5 + 3));
+    instr->instruction |= (imm << (7 + 5 + 3 + 5));
+}
+
+void parseSBType(char *opr, Instruction *instr)
+{
+    instr->instruction = 0;
+    unsigned opcode = 0;
+    unsigned funct3 = 0;
+    unsigned short imm = 0;
+    char *dump;
+
+    if (strcmp(opr, "bne") == 0)
+    {
+        opcode = 99;
+        funct3 = 1;
+    }
+
+    char *reg = strtok(NULL, ", ");
+    unsigned rs_1 = regIndex(reg);
+
+    reg = strtok(NULL, ", ");
+    unsigned rs_2 = regIndex(reg);
+
+    imm = strtol(strtok(NULL, ", "), &dump, 10);
+    // Don't store lowest bit
+    imm >> 1;
+
+    // 5 bit field next to opcode
+    unsigned imm_front = ((imm & 0b1111) << 1) | ((imm >> 10) & 0b1);
+    // 7 bit field at the far left of the binary instruction
+    unsigned imm_back = (((imm >> 11) & 0b1) << 6) | ((imm >> 4) & 0b111111);
+
+    // Contruct instruction
+    instr->instruction |= opcode;
+    instr->instruction |= (imm_front << 7);
+    instr->instruction |= (funct3 << (7 + 5));
+    instr->instruction |= (rs_1 << (7 + 5 + 3));
+    instr->instruction |= (rs_2 << (7 + 5 + 3 + 5));
+    instr->instruction |= (imm_back << (7 + 5 + 3 + 5 + 5));
 }
 
 int regIndex(char *reg)
