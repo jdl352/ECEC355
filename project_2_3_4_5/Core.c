@@ -9,31 +9,25 @@ Core *initCore(Instruction_Memory *i_mem)
     core->tick = tickFunc;
 
     uint64_t arr[4] = {16, 128, 8, 4};
-
+    for (size_t i = 0; i < sizeof(core->instr_mem)/sizeof(core->instr_mem[0]); i++)
+    {
+        core->data_mem[i] = 0;
+    }
     for (size_t i = 0; i < sizeof(arr) / sizeof(arr[0]); i++)
     {
-        core->data_mem[(64 * i)] = (arr[i] >> 56) % (2 << 8);
-        core->data_mem[(64 * i) + 8] = (arr[i] >> 48) % (2 << 8);
-        core->data_mem[(64 * i) + 16] = (arr[i] >> 40) % (2 << 8);
-        core->data_mem[(64 * i) + 24] = (arr[i] >> 32) % (2 << 8);
-        core->data_mem[(64 * i) + 32] = (arr[i] >> 24) % (2 << 8);
-        core->data_mem[(64 * i) + 40] = (arr[i] >> 16) % (2 << 8);
-        core->data_mem[(64 * i) + 48] = (arr[i] >> 8) % (2 << 8);
-        core->data_mem[(64 * i) + 56] = arr[i] % (2 << 8);
+        core->data_mem[(8 * i)] = (arr[i] >> 56) % (2 << 8);
+        core->data_mem[(8 * i) + 1] = (arr[i] >> 48) % (2 << 8);
+        core->data_mem[(8 * i) + 2] = (arr[i] >> 40) % (2 << 8);
+        core->data_mem[(8 * i) + 3] = (arr[i] >> 32) % (2 << 8);
+        core->data_mem[(8 * i) + 4] = (arr[i] >> 24) % (2 << 8);
+        core->data_mem[(8 * i) + 5] = (arr[i] >> 16) % (2 << 8);
+        core->data_mem[(8 * i) + 6] = (arr[i] >> 8) % (2 << 8);
+        core->data_mem[(8 * i) + 7] = arr[i] % (2 << 8);
     }
-
-    for (size_t i = 0; i < sizeof(arr) / sizeof(arr[0]); i++)
+    for (size_t i = 0; i < sizeof(core->reg_file)/sizeof(core->reg_file[0]); i++)
     {
-        printf("%d ", core->data_mem[(64 * i)]);
-        printf("%d ", core->data_mem[(64 * i) + 8]);
-        printf("%d ", core->data_mem[(64 * i) + 16]);
-        printf("%d ", core->data_mem[(64 * i) + 24]);
-        printf("%d ", core->data_mem[(64 * i) + 32]);
-        printf("%d ", core->data_mem[(64 * i) + 40]);
-        printf("%d ", core->data_mem[(64 * i) + 48]);
-        printf("%d\n", core->data_mem[(64 * i) + 56]);
+        core->reg_file[i] = 0;
     }
-
     core->reg_file[25] = 4;
     core->reg_file[10] = 4;
     core->reg_file[22] = 1;
@@ -59,26 +53,68 @@ bool tickFunc(Core *core)
     ControlUnit(opcode, &controls);
     Signal alu_control = ALUControlUnit(controls.ALUOp, funct7, funct3);
 
-    Register input1 = core->reg_file[rs1];
-    Register input2 = core->reg_file[rs2];
-
-    printf("Value at rs1: %ld\n", input1);
-    printf("Value at rs2: %ld\n", input2);
+    Signal input_0 = core->reg_file[rs1];
+    Signal input_1 = core->reg_file[rs2];
 
     // Operate on data
 
+    Signal result = 0;
+    Signal zero = 0;
+
     if (opcode == 51) // add
     {
-
+        ALU(input_0, input_1, alu_control, &result, &zero);
+    }
+    else if (opcode == 3 && funct3 == 3) // ld
+    {
+        Signal imm = rs2 | (funct7 << 5);
+        Signal addr;
+        ALU(input_0, imm, alu_control, &addr, &zero);
+        result += (uint64_t)(core->data_mem[addr]) << 56;
+        result += (uint64_t)(core->data_mem[addr + 1]) << 48;
+        result += (uint64_t)(core->data_mem[addr + 2]) << 40;
+        result += (uint64_t)(core->data_mem[addr + 3]) << 32;
+        result += (uint64_t)(core->data_mem[addr + 4]) << 24;
+        result += (uint64_t)(core->data_mem[addr + 5]) << 16;
+        result += (uint64_t)(core->data_mem[addr + 6]) << 8;
+        result += (uint64_t)(core->data_mem[addr + 7]);
+    }
+    else if (opcode == 19) // addi and slli
+    {
+        Signal imm = rs2 | (funct7 << 5);
+        if (funct3 == 0) // addi
+        {
+            ALU(input_0, imm, alu_control, &result, &zero);
+        }
+        else if (funct3 == 1) // slli
+        {
+            result = input_0 << imm;
+        }
+        printf("Test val: %ld\n", input_0);
+    }
+    else if (opcode == 99) // bne
+    {
+        ALU(input_0, input_1, alu_control, &result, &zero);
     }
 
     // Write to destination
 
+    if (controls.RegWrite)
+    {
+        core->reg_file[rd] = result;
+    }
+
     // (Step N) Increment PC. FIXME, is it correct to always increment PC by 4?!
     // if branch, add imm to program counter
     // sign extend, shift left one bit, add to PC to compute branch address
-    core->PC += 4;
-
+    if (opcode == 99 && zero == 0)
+    {
+        Signal imm = (rd >> 1) | (funct7 % (1 << 6)) | (rd % 2) | (funct7 >> 6);
+        core->PC += imm << 1;
+    }
+    else{
+        core->PC += 4;
+    }
     ++core->clk;
     // Are we reaching the final instruction?
     if (core->PC > core->instr_mem->last->addr)
@@ -136,7 +172,13 @@ void ControlUnit(Signal input,
     }
     else if (input == 19) // addi or slli
     {
-
+        signals->ALUSrc = 0;
+        signals->MemtoReg = 0;
+        signals->RegWrite = 1;
+        signals->MemRead = 0;
+        signals->MemWrite = 0;
+        signals->Branch = 0;
+        signals->ALUOp = 0;
     }
 }
 

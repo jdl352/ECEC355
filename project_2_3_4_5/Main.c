@@ -27,6 +27,11 @@ int main(int argc, const char *argv[])
     while (core->tick(core));
 
     printf("Simulation is finished.\n");
+    printf("Final PC: %ld\n", core->PC);
+    for (size_t i = 0; i < 32; i++)
+    {
+        printf("Reg %ld: %ld\n", i, core->reg_file[i]);
+    }
 
     free(core);    
 }
