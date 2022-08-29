@@ -27,6 +27,11 @@ typedef struct Core
     Byte data_mem[1024]; // data memory
 
     Register reg_file[32]; // register file.
+    bool scoreboard[32]; 
+
+    unsigned fetch, decode, execute, memory, write_back;
+    Signal ex_result, mem_result, wb_result;
+    bool stall;
 
     bool (*tick)(Core *core);
 }Core;
@@ -75,5 +80,7 @@ Signal Add(Signal input_0,
 
 // (6). ShiftLeft1
 Signal ShiftLeft1(Signal input);
+
+bool reg_available(Core* core, Signal input);
 
 #endif

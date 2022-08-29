@@ -7,8 +7,10 @@ Core *initCore(Instruction_Memory *i_mem)
     core->PC = 0;
     core->instr_mem = i_mem;
     core->tick = tickFunc;
+    core->stall = false;
 
-    uint64_t arr[4] = {16, 128, 8, 4};
+    uint64_t arr[2] = {40};
+    int64_t vals[2] = {48};
     for (size_t i = 0; i < sizeof(core->instr_mem)/sizeof(core->instr_mem[0]); i++)
     {
         core->data_mem[i] = 0;
@@ -27,10 +29,13 @@ Core *initCore(Instruction_Memory *i_mem)
     for (size_t i = 0; i < sizeof(core->reg_file)/sizeof(core->reg_file[0]); i++)
     {
         core->reg_file[i] = 0;
+        core->scoreboard[i] = 1;
     }
-    core->reg_file[25] = 4;
-    core->reg_file[10] = 4;
-    core->reg_file[22] = 1;
+    core->reg_file[2] = 10;
+    core->reg_file[3] = -15;
+    core->reg_file[4] = 20;
+    core->reg_file[5] = 30;
+    core->reg_file[6] = -35;
 
     return core;
 }
@@ -38,85 +43,160 @@ Core *initCore(Instruction_Memory *i_mem)
 // FIXME, implement this function
 bool tickFunc(Core *core)
 {
-    // Steps may include
-    // (Step 1) Reading instruction from instruction memory
-    unsigned instruction = core->instr_mem->instructions[core->PC / 4].instruction;
 
-    // Generate control signals and read input regs
-    ControlSignals controls;
-    Signal opcode = instruction % (1 << 7);
-    Signal rd = (instruction >> 7) % (1 << 5);
-    Signal funct3 = (instruction >> 12) % (1 << 3);
-    Signal rs1 = (instruction >> 15) % (1 << 5);
-    Signal rs2 = (instruction >> 20) % (1 << 5);
-    Signal funct7 = (instruction >> 25) % (1 << 7);
-    ControlUnit(opcode, &controls);
-    Signal alu_control = ALUControlUnit(controls.ALUOp, funct7, funct3);
+    Signal zero;
 
-    Signal input_0 = core->reg_file[rs1];
-    Signal input_1 = core->reg_file[rs2];
+    // WB stage
 
-    // Operate on data
-
-    Signal result = 0;
-    Signal zero = 0;
-
-    if (opcode == 51) // add
+    if (core->write_back != 0)
     {
-        ALU(input_0, input_1, alu_control, &result, &zero);
-    }
-    else if (opcode == 3 && funct3 == 3) // ld
-    {
-        Signal imm = rs2 | (funct7 << 5);
-        Signal addr;
-        ALU(input_0, imm, alu_control, &addr, &zero);
-        result += (uint64_t)(core->data_mem[addr]) << 56;
-        result += (uint64_t)(core->data_mem[addr + 1]) << 48;
-        result += (uint64_t)(core->data_mem[addr + 2]) << 40;
-        result += (uint64_t)(core->data_mem[addr + 3]) << 32;
-        result += (uint64_t)(core->data_mem[addr + 4]) << 24;
-        result += (uint64_t)(core->data_mem[addr + 5]) << 16;
-        result += (uint64_t)(core->data_mem[addr + 6]) << 8;
-        result += (uint64_t)(core->data_mem[addr + 7]);
-    }
-    else if (opcode == 19) // addi and slli
-    {
-        Signal imm = rs2 | (funct7 << 5);
-        if (funct3 == 0) // addi
+        ControlSignals wb_controls;
+        Signal wb_opcode = core->write_back % (1 << 7);
+        ControlUnit(wb_opcode, &wb_controls);
+        if (wb_controls.RegWrite)
         {
-            ALU(input_0, imm, alu_control, &result, &zero);
+            Signal wb_rd = (core->write_back >> 7) % (1 << 5);
+            core->reg_file[wb_rd] = core->wb_result;
+            core->scoreboard[wb_rd] = true;
         }
-        else if (funct3 == 1) // slli
+        core->write_back = 0; 
+    }
+
+    // MEM stage
+    if (core->memory != 0)
+    {
+        ControlSignals mem_controls;
+        Signal mem_opcode = core->memory % (1 << 7);
+        Signal mem_funct3 = (core->memory >> 12) % (1 << 3);
+        Signal mem_rs1 = (core->memory >> 15) % (1 << 5);
+        Signal mem_rs2 = (core->memory >> 20) % (1 << 5);
+        Signal mem_funct7 = (core->memory >> 25) % (1 << 7);
+        Signal input_0 = core->reg_file[mem_rs1];
+        ControlUnit(mem_opcode, &mem_controls);
+        Signal mem_alu_control = ALUControlUnit(mem_controls.ALUOp, mem_funct7, mem_funct3);
+
+        if (mem_opcode == 3 && mem_funct3 == 3) // ld
         {
-            result = input_0 << imm;
+            core->mem_result = 0;
+            Signal imm = mem_rs2 | (mem_funct7 << 5);
+            Signal addr;
+            ALU(input_0, imm, mem_alu_control, &addr, &zero);
+            core->mem_result += (uint64_t)(core->data_mem[addr]) << 56;
+            core->mem_result += (uint64_t)(core->data_mem[addr + 1]) << 48;
+            core->mem_result += (uint64_t)(core->data_mem[addr + 2]) << 40;
+            core->mem_result += (uint64_t)(core->data_mem[addr + 3]) << 32;
+            core->mem_result += (uint64_t)(core->data_mem[addr + 4]) << 24;
+            core->mem_result += (uint64_t)(core->data_mem[addr + 5]) << 16;
+            core->mem_result += (uint64_t)(core->data_mem[addr + 6]) << 8;
+            core->mem_result += (uint64_t)(core->data_mem[addr + 7]);
         }
-        printf("Test val: %ld\n", input_0);
-    }
-    else if (opcode == 99) // bne
-    {
-        ALU(input_0, input_1, alu_control, &result, &zero);
+
+        core->write_back = core->memory;
+        core->memory = 0;
+        core->wb_result = core->mem_result;
     }
 
-    // Write to destination
+    // EX stage
 
-    if (controls.RegWrite)
+    if (core->execute != 0)
     {
-        core->reg_file[rd] = result;
+
+        ControlSignals ex_controls;
+        Signal ex_opcode = core->execute % (1 << 7);
+        Signal ex_rd = (core->execute >> 7) % (1 << 5);
+        Signal ex_funct3 = (core->execute >> 12) % (1 << 3);
+        Signal ex_rs1 = (core->execute >> 15) % (1 << 5);
+        Signal ex_rs2 = (core->execute >> 20) % (1 << 5);
+        Signal ex_funct7 = (core->execute >> 25) % (1 << 7);
+        ControlUnit(ex_opcode, &ex_controls);
+        Signal ex_alu_control = ALUControlUnit(ex_controls.ALUOp, ex_funct7, ex_funct3);
+
+        Signal input_0 = core->reg_file[ex_rs1];
+        Signal input_1 = core->reg_file[ex_rs2];
+
+        Signal zero;
+
+        if (ex_opcode == 51) // add and sub
+        {
+            ALU(input_0, input_1, ex_alu_control, &(core->ex_result), &zero);
+        }
+        else if (ex_opcode == 19) // addi and slli
+        {
+            Signal imm = ex_rs2 | (ex_funct7 << 5);
+            if (ex_funct3 == 0) // addi
+            {
+                ALU(input_0, imm, ex_alu_control, &(core->ex_result), &zero);
+            }
+            else if (ex_funct3 == 1) // slli
+            {
+                core->ex_result = input_0 << imm;
+            }
+        }
+        else if (ex_opcode == 99) // bne
+        {
+            ALU(input_0, input_1, ex_alu_control, &(core->ex_result), &zero);
+        }
+
+        core->memory = core->execute;
+        core->execute = 0;
+        core->mem_result = core->ex_result;
     }
 
-    // (Step N) Increment PC. FIXME, is it correct to always increment PC by 4?!
-    // if branch, add imm to program counter
-    // sign extend, shift left one bit, add to PC to compute branch address
-    if (opcode == 99 && zero == 0)
+    // DE stage
+
+    if (core->decode != 0)
     {
-        Signal imm = (rd >> 1) | (funct7 % (1 << 6)) | (rd % 2) | (funct7 >> 6);
-        core->PC += imm << 1;
+        Signal de_rd = (core->decode >> 7) % (1 << 5);
+        Signal de_rs1 = (core->decode >> 15) % (1 << 5);
+        Signal de_rs2 = (core->decode >> 20) % (1 << 5);
+        Signal de_opcode = core->decode % (1 << 7);
+        if (!core->stall)
+        {
+            if (core->reg_file[de_rs1] == false || 
+                core->reg_file[de_rs2] == false ||
+                core->reg_file[de_rd] == false)
+            {
+                core->stall = true;
+            }
+            else
+            {
+                core->scoreboard[de_rd] = false;
+                core->execute = core->decode;
+                core->decode = 0;
+            }
+        }
+        else
+        {
+            if (core->reg_file[de_rs1] == true && 
+                core->reg_file[de_rs2] == true &&
+                core->reg_file[de_rd] == true)
+                {
+                    core->stall = false;
+                }
+        }
     }
-    else{
+
+    if (core->fetch == 0)
+    {
+        core->fetch = core->instr_mem->instructions[core->PC / 4].instruction;
         core->PC += 4;
+        if (core->decode == 0)
+        {
+            core->decode = core->fetch;
+            core->fetch = 0;
+        }
     }
+    else
+    {
+        if (core->decode == 0)
+        {
+            core->decode = core->fetch;
+            core->fetch = 0;
+        }
+    }
+
     ++core->clk;
-    // Are we reaching the final instruction?
+
     if (core->PC > core->instr_mem->last->addr)
     {
         return false;
@@ -284,4 +364,18 @@ Signal Add(Signal input_0,
 Signal ShiftLeft1(Signal input)
 {
     return input << 1;
+}
+
+bool reg_available(Core* core, Signal input)
+{
+    Signal rd = (input >> 7) % (1 << 5);
+
+    if (core->scoreboard[rd] == true)
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
 }
