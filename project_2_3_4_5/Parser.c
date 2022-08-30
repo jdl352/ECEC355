@@ -75,6 +75,12 @@ void parseRType(char *opr, Instruction *instr)
         funct3 = 0;
         funct7 = 0;
     }
+    else if (strcmp(opr, "sub") == 0)
+    {
+        opcode = 51;
+        funct3 = 0;
+        funct7 = 0b0100000;
+    }
 
     char *reg = strtok(NULL, ", ");
     unsigned rd = regIndex(reg);

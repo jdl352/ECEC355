@@ -9,27 +9,33 @@ Core *initCore(Instruction_Memory *i_mem)
     core->tick = tickFunc;
     core->stall = false;
 
-    uint64_t arr[2] = {40};
-    int64_t vals[2] = {48};
+    core->write_back = 0;
+    core->memory = 0;
+    core->execute = 0;
+    core->decode = 0;
+    core->fetch = 0;
+
+    uint64_t arr[2] = {40, 48};
+    uint64_t vals[2] = {-63, 63};
     for (size_t i = 0; i < sizeof(core->instr_mem)/sizeof(core->instr_mem[0]); i++)
     {
         core->data_mem[i] = 0;
     }
     for (size_t i = 0; i < sizeof(arr) / sizeof(arr[0]); i++)
     {
-        core->data_mem[(8 * i)] = (arr[i] >> 56) % (2 << 8);
-        core->data_mem[(8 * i) + 1] = (arr[i] >> 48) % (2 << 8);
-        core->data_mem[(8 * i) + 2] = (arr[i] >> 40) % (2 << 8);
-        core->data_mem[(8 * i) + 3] = (arr[i] >> 32) % (2 << 8);
-        core->data_mem[(8 * i) + 4] = (arr[i] >> 24) % (2 << 8);
-        core->data_mem[(8 * i) + 5] = (arr[i] >> 16) % (2 << 8);
-        core->data_mem[(8 * i) + 6] = (arr[i] >> 8) % (2 << 8);
-        core->data_mem[(8 * i) + 7] = arr[i] % (2 << 8);
+        core->data_mem[(8 * arr[i])] = (vals[i] >> 56) % (1 << 8);
+        core->data_mem[(8 * arr[i]) + 1] = (vals[i] >> 48) % (1 << 8);
+        core->data_mem[(8 * arr[i]) + 2] = (vals[i] >> 40) % (1 << 8);
+        core->data_mem[(8 * arr[i]) + 3] = (vals[i] >> 32) % (1 << 8);
+        core->data_mem[(8 * arr[i]) + 4] = (vals[i] >> 24) % (1 << 8);
+        core->data_mem[(8 * arr[i]) + 5] = (vals[i] >> 16) % (1 << 8);
+        core->data_mem[(8 * arr[i]) + 6] = (vals[i] >> 8) % (1 << 8);
+        core->data_mem[(8 * arr[i]) + 7] = vals[i] % (1 << 8);
     }
     for (size_t i = 0; i < sizeof(core->reg_file)/sizeof(core->reg_file[0]); i++)
     {
         core->reg_file[i] = 0;
-        core->scoreboard[i] = 1;
+        core->scoreboard[i] = true;
     }
     core->reg_file[2] = 10;
     core->reg_file[3] = -15;
@@ -100,7 +106,6 @@ bool tickFunc(Core *core)
 
     if (core->execute != 0)
     {
-
         ControlSignals ex_controls;
         Signal ex_opcode = core->execute % (1 << 7);
         Signal ex_rd = (core->execute >> 7) % (1 << 5);
@@ -152,9 +157,9 @@ bool tickFunc(Core *core)
         Signal de_opcode = core->decode % (1 << 7);
         if (!core->stall)
         {
-            if (core->reg_file[de_rs1] == false || 
-                core->reg_file[de_rs2] == false ||
-                core->reg_file[de_rd] == false)
+            if (core->scoreboard[de_rs1] == false || 
+                core->scoreboard[de_rs2] == false ||
+                core->scoreboard[de_rd] == false)
             {
                 core->stall = true;
             }
@@ -167,16 +172,16 @@ bool tickFunc(Core *core)
         }
         else
         {
-            if (core->reg_file[de_rs1] == true && 
-                core->reg_file[de_rs2] == true &&
-                core->reg_file[de_rd] == true)
+            if (core->scoreboard[de_rs1] == true && 
+                core->scoreboard[de_rs2] == true &&
+                core->scoreboard[de_rd] == true)
                 {
                     core->stall = false;
                 }
         }
     }
 
-    if (core->fetch == 0)
+    if (core->fetch == 0 && !(core->PC > core->instr_mem->last->addr))
     {
         core->fetch = core->instr_mem->instructions[core->PC / 4].instruction;
         core->PC += 4;
@@ -197,7 +202,12 @@ bool tickFunc(Core *core)
 
     ++core->clk;
 
-    if (core->PC > core->instr_mem->last->addr)
+    if (core->PC > core->instr_mem->last->addr &&
+        core->write_back == 0 &&
+        core->memory == 0 &&
+        core->execute == 0 &&
+        core->decode == 0
+        && core->fetch == 0)
     {
         return false;
     }
@@ -364,18 +374,4 @@ Signal Add(Signal input_0,
 Signal ShiftLeft1(Signal input)
 {
     return input << 1;
-}
-
-bool reg_available(Core* core, Signal input)
-{
-    Signal rd = (input >> 7) % (1 << 5);
-
-    if (core->scoreboard[rd] == true)
-    {
-        return true;
-    }
-    else
-    {
-        return false;
-    }
 }
